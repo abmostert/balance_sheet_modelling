@@ -3,6 +3,7 @@ import re
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from yahooquery import Ticker
 
 
 # Use real data to run the programme
