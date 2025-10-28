@@ -1,0 +1,44 @@
+{
+  "current_assets": [
+    "^cash(_and)?(_cash_equivalents)?$",
+    "^cash_and_cash_equivalents$",
+    "^other_short_term_investments$",
+    "^accounts_receivable.*",
+    "^inventory$",
+    "^total_current_assets$",
+    "^short_term_investments$",
+    "^prepaid.*"
+  ],
+  "noncurrent_assets": [
+    "^property_plant_equipment.*",
+    "^goodwill$",
+    "^intangible_assets.*",
+    "^long_term_investments$",
+    "^total_non_current_assets$"
+  ],
+  "current_liabilities": [
+    "^accounts_payable$",
+    "^short_term_debt$",
+    "^total_current_liabilities$",
+    "^accrued.*",
+    "^deferred_revenue_current$"
+  ],
+  "noncurrent_liabilities": [
+    "^long_term_debt$",
+    "^deferred_tax_liabilities.*",
+    "^other_long_term_liabilities$",
+    "^total_non_current_liabilities$"
+  ],
+  "equity": [
+    "^retained_earnings$",
+    "^common_stock$",
+    "^treasury_stock$",
+    "^accumulated_other_comprehensive_income$",
+    "^total_stockholder_equity$",
+    "^total_equity.*"
+  ],
+  "totals": [
+    "^total_assets$",
+    "^total_liabilities.*"
+  ]
+}
