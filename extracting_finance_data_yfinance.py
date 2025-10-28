@@ -88,12 +88,14 @@ cat_df = cat_df.set_index('label')
 merged_bs = pd.merge(bs,cat_df, left_index=True, right_index=True)
 
 
-#I f an unknown item is in the category label, then it means the line item needs
+# If an unknown item is in the category label, then it means the line item needs
 # to be updated into the category pattern dictionary, or update it locally in
 # the balance sheet dataframe
 if (merged_bs['category'] == 'unknown').any():
 
+    
     while True:
+        # The user is given the option on what to modify
         target = merged_bs[merged_bs['category'] == 'unknown'].iloc[0]
         target_name = target.name
         print('The following line item:\n')
@@ -102,11 +104,13 @@ if (merged_bs['category'] == 'unknown').any():
         print('1. Update the main category pattern dictionary?')
         print('2. Update the balance sheet dataframe?')
         print('3. Quit the programme?')
-
+        
         user_input = input()
 
+        # The set of code to enact an update of the main category pattern dictionary
         if user_input == '1':
 
+            # Another menu for the user to select which category to assign the unknown line item
             while True:
                 print('What category does the item belong to?\n')
                 print('1. Current Assets')
@@ -118,41 +122,34 @@ if (merged_bs['category'] == 'unknown').any():
                 print('7. Quit\n')
                 print('Select a number.')
 
-                user_input = input()
+                # Creating a dictionary for the response options for the user. This setup avoids the use of a long chain of if/elif statements
+                category_assign_dict = {'1': 'current_assets', '2': 'noncurrent_assets', '3': 'current_liabilities',
+                                       '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals'}
 
-                if user_input == '1':
-                    user_input = input('Please put in regex line.')
-                    category_pattern['current_assets'].append(user_input)
+                # Take the user input for category
+                user_input_cat_assign = input()
 
-                elif user_input == '2':
-                    user_input = input('Please put in regex line.')
-                    category_pattern['noncurrent_assets'].append(user_input)
+                # User input for category used in dictionary to assign the snake case balance sheet category
+                if user_input_cat_assign in category_assign_dict:
+                    # Take regex code for the category pattern dictionary
+                    user_input_regex = input('Please put in regex line.')
+                    # Update the category pattern dictionary
+                    category_pattern[user_input_cat_assign].append(user_input_regex)
+                    # Exit the while loop
+                    break
 
-                elif user_input == '3':
-                    user_input = input('Please put in regex line.')
-                    category_pattern['current_liabilities'].append(user_input)
-
-                elif user_input == '4':
-                    user_input = input('Please put in regex line.')
-                    category_pattern['noncurrent_liabilities'].append(user_input)
-
-                elif user_input == '5':
-                    user_input = input('Please put in regex line.')
-                    category_pattern['equity'].append(user_input)
-
-                elif user_input == '6':
-                    user_input = input('Please put in regex line.')
-                    category_pattern['totals'].append(user_input)
-
+                # Quit the update of the main category pattern dictionary
                 elif user_input == '7':
                     break
 
+                # If any other accidental input, the option to retry is shown.
                 else:
                     print('Try again. Use a number only.')
 
-
+        # The set of code to enact an update of the balance sheet data frame
         elif user_input == '2':
 
+            # Another menu for the user to select which category to assign the unknown line item
             while True:
                 print('What category does the item belong to?\n')
                 print('1. Current Assets')
@@ -164,42 +161,33 @@ if (merged_bs['category'] == 'unknown').any():
                 print('7. Quit\n')
                 print('Select a number:1')
 
-                user_input = input()
+                 # Creating a dictionary for the response options for the user. This setup avoids the use of a long chain of if/elif statements
+                category_assign_dict = {'1': 'current_assets', '2': 'noncurrent_assets', '3': 'current_liabilities',
+                                       '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals'}
+                
+                # Take the user input for category
+                user_input_cat_assign = input()
 
-                if user_input == '1':
-                    merged_bs.loc[target_name, 'category'] = 'current_assets'
+                # User input for category used in dictionary to assign the snake case balance sheet category
+                if user_input in category_assign_dict:
+                    # Add the balance sheet category snake case name to the dataframe
+                    merged_bs.loc[target_name, 'category'] = category_assign_dict[user_input_cat_assign]
+                    # Exit the while loop
                     break
 
-                elif user_input == '2':
-                    merged_bs.loc[target_name, 'category'] = 'noncurrent_assets'
-                    break
-
-                elif user_input == '3':
-                    merged_bs.loc[target_name, 'category'] = 'current_liabilities'
-                    break
-
-                elif user_input == '4':
-                    merged_bs.loc[target_name, 'category'] = 'noncurrent_liabilities'
-                    break
-
-                elif user_input == '5':
-                    merged_bs.loc[target_name, 'category'] = 'equity'
-                    break
-
-                elif user_input == '6':
-                    merged_bs.loc[target_name, 'category'] = 'totals'
-                    break
-
+                # Quit the update of the main category pattern dictionary
                 elif user_input == '7':
                     break
 
+                # If any other accidental input, the option to retry is shown.
                 else:
                     print('Try again. Use a number only.')
 
-
+        # Quit the update menu
         elif user_input == '3':
             break
 
+        # If any other accidental input, the option to retry is shown.
         else:
             print('Try again. Use a number only.')
 
