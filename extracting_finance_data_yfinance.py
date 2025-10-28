@@ -1,11 +1,14 @@
 # Import all the necessary modules
+
+# Import re for regex code handeling for the catergory patterns json file
 import re
+# Import json since json file is being used in this code
+import json
+# numpy and pandas necesarry for cateloging and manipulating data
 import numpy as np
 import pandas as pd
+# Use of yfinance for getting the financial data
 import yfinance as yf
-
-
-
 
 # Use real data to run the programme
 t = yf.Ticker("BP.L")
@@ -17,52 +20,11 @@ labels = bs.index.tolist()
 def normalise(label: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_')
 
-# Define categories and their matching snake case patterns
-category_pattern = {
-    "current_assets": [
-        r"^cash(_and)?(_cash_equivalents)?$",
-        r"^cash_and_cash_equivalents$",
-        r"^other_short_term_investments$",
-        r"^accounts_receivable.*",
-        r"^inventory$",
-        r"^total_current_assets$",
-        r"^short_term_investments$",
-        r"^prepaid.*",
-    ],
-    "noncurrent_assets": [
-        r"^property_plant_equipment.*",
-        r"^goodwill$",
-        r"^intangible_assets.*",
-        r"^long_term_investments$",
-        r"^total_non_current_assets$",
-    ],
-    "current_liabilities": [
-        r"^accounts_payable$",
-        r"^short_term_debt$",
-        r"^total_current_liabilities$",
-        r"^accrued.*",
-        r"^deferred_revenue_current$",
-    ],
-    "noncurrent_liabilities": [
-        r"^long_term_debt$",
-        r"^deferred_tax_liabilities.*",
-        r"^other_long_term_liabilities$",
-        r"^total_non_current_liabilities$",
-    ],
-    "equity": [
-        r"^retained_earnings$",
-        r"^common_stock$",
-        r"^treasury_stock$",
-        r"^accumulated_other_comprehensive_income$",
-        r"^total_stockholder_equity$",
-        r"^total_equity.*",
-    ],
-    "totals": [
-        r"^total_assets$",
-        r"^total_liabilities.*",
-    ],
-}
+# Open the category_pattern.json with encoding utf-8 to obtain the snake case labels
+with open("category_pattern.json", "r", encoding="utf-8") as f:
+    category_pattern = json.load(f)
 
+print(category_pattern)
 
 # Create function to categorise the line item into a balance sheet section
 # Function also returns the snake case equivalent
@@ -132,7 +94,7 @@ if (merged_bs['category'] == 'unknown').any():
                 # User input for category used in dictionary to assign the snake case balance sheet category
                 if user_input_cat_assign in category_assign_dict:
                     # Take regex code for the category pattern dictionary
-                    user_input_regex = input('Please put in regex line.')
+                    user_input_regex = input('Please put in regex line. Reminder: Double every \ in regex patterns as the file is saved as a JSON (JSON escape rule).')
                     # Update the category pattern dictionary
                     category_pattern[user_input_cat_assign].append(user_input_regex)
                     # Exit the while loop
