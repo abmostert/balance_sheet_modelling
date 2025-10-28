@@ -10,25 +10,14 @@ import pandas as pd
 # Use of yfinance for getting the financial data
 import yfinance as yf
 
-# Use real data to run the programme
-t = yf.Ticker("BP.L")
-# Extract the balance sheet
-bs = t.balance_sheet
-labels = bs.index.tolist()
-
+# --helper functions--
 # Create a function to change balance sheet labels into snake case labels
 def normalise(label: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_')
 
-# Open the category_pattern.json with encoding utf-8 to obtain the snake case labels
-with open("category_pattern.json", "r", encoding="utf-8") as f:
-    category_pattern = json.load(f)
-
-print(category_pattern)
-
 # Create function to categorise the line item into a balance sheet section
 # Function also returns the snake case equivalent
-def categorise(snake_case_label: str) -> str:
+def _categorise(snake_case_label: str) -> str:
 
     for cat, patterns in category_pattern.items():
         for pat in patterns:
@@ -36,10 +25,29 @@ def categorise(snake_case_label: str) -> str:
                 return cat
     return "unknown"
 
+# Create a function to open the json file
+# Open the category_pattern.json with encoding utf-8 to obtain the snake case labels
+def _load_category_pattern(path: str = "category_pattern.json") -> dict:
+    with open("category_pattern.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def _save_category_pattern(category_pattern: dict, path: str = "category_pattern.json") -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(category_pattern, f, indent=4, ensure_ascii=False)
+        f.write("\n")
+
+# Use real data to run the programme
+t = yf.Ticker("BP.L")
+# Extract the balance sheet
+bs = t.balance_sheet
+labels = bs.index.tolist()
+
+# Load the category pattern
+category_pattern = _load_category_pattern(category_pattern_path)
 
 # Create a relationship between line item, category and snake case
 snake_case_labels = {lbl: normalise(lbl) for lbl in labels}
-categories = {lbl: categorise(snake_case_labels[lbl]) for lbl in labels}
+categories = {lbl: _categorise(snake_case_labels[lbl]) for lbl in labels}
 cat_df = pd.DataFrame({"label": labels, "category": [categories[lbl]
                                                       for lbl in labels],
                        "snake_case": [snake_case_labels[lbl]
