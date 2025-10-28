@@ -18,10 +18,9 @@ def normalise(label: str) -> str:
 # Create function to categorise the line item into a balance sheet section
 # Function also returns the snake case equivalent
 def _categorise(snake_case_label: str) -> str:
-
     for cat, patterns in category_pattern.items():
         for pat in patterns:
-            if re.match(pat, snake_case_label):
+            if re.fullmatch(pat, snake_case_label):
                 return cat
     return "unknown"
 
@@ -36,132 +35,140 @@ def _save_category_pattern(category_pattern: dict, path: str = "category_pattern
         json.dump(category_pattern, f, indent=4, ensure_ascii=False)
         f.write("\n")
 
-# Use real data to run the programme
-t = yf.Ticker("BP.L")
-# Extract the balance sheet
-bs = t.balance_sheet
-labels = bs.index.tolist()
+# -- main script --
+def run_extraction(ticker: str, period: str = 'annual', interactive: bool = False, category_pattern_path: str: "category_pattern.json") -> "pd.DataFrame":
+if period not in ("annual", "quarterly"):
+    raise ValueError("Period must be 'annual' or 'quarterly'.")
 
-# Load the category pattern
-category_pattern = _load_category_pattern(category_pattern_path)
+    # Use real data to run the programme
+    t = yf.Ticker("BP.L")
+    # Extract the balance sheet
+    bs = t.balance_sheet
+    labels = bs.index.tolist()
 
-# Create a relationship between line item, category and snake case
-snake_case_labels = {lbl: normalise(lbl) for lbl in labels}
-categories = {lbl: _categorise(snake_case_labels[lbl]) for lbl in labels}
-cat_df = pd.DataFrame({"label": labels, "category": [categories[lbl]
+    # Load the category pattern
+    category_pattern = _load_category_pattern(category_pattern_path)
+
+    # Create a relationship between line item, category and snake case
+    snake_case_labels = {lbl: normalise(lbl) for lbl in labels}
+    categories = {lbl: _categorise(snake_case_labels[lbl]) for lbl in labels}
+    cat_df = pd.DataFrame({"label": labels, "category": [categories[lbl]
                                                       for lbl in labels],
-                       "snake_case": [snake_case_labels[lbl]
-                                       for lbl in labels]})
-cat_df = cat_df.set_index('label')
+                           "snake_case": [snake_case_labels[lbl]
+                                           for lbl in labels]})
+    cat_df = cat_df.set_index('label')
 
-# Add to the balance sheet dataframe the category and snake_case
-merged_bs = pd.merge(bs,cat_df, left_index=True, right_index=True)
+    # Add to the balance sheet dataframe the category and snake_case
+    merged_bs = pd.merge(bs,cat_df, left_index=True, right_index=True)
 
 
-# If an unknown item is in the category label, then it means the line item needs
-# to be updated into the category pattern dictionary, or update it locally in
-# the balance sheet dataframe
-if (merged_bs['category'] == 'unknown').any():
+    # If an unknown item is in the category label, then it means the line item needs
+    # to be updated into the category pattern dictionary, or update it locally in
+    # the balance sheet dataframe
+    if (merged_bs['category'] == 'unknown').any():
 
     
-    while True:
-        # The user is given the option on what to modify
-        target = merged_bs[merged_bs['category'] == 'unknown'].iloc[0]
-        target_name = target.name
-        print('The following line item:\n')
-        print(f'{target_name}\n')
-        print('has an unkown category. How do you wish to update the category?\n')
-        print('1. Update the main category pattern dictionary?')
-        print('2. Update the balance sheet dataframe?')
-        print('3. Quit the programme?')
+        while True:
+            # The user is given the option on what to modify
+            target = merged_bs[merged_bs['category'] == 'unknown'].iloc[0]
+            target_name = target.name
+            print('The following line item:\n')
+            print(f'{target_name}\n')
+            print('has an unkown category. How do you wish to update the category?\n')
+            print('1. Update the main category pattern dictionary?')
+            print('2. Update the balance sheet dataframe?')
+            print('3. Quit the programme?')
         
-        user_input = input()
+            user_input = input()
 
-        # The set of code to enact an update of the main category pattern dictionary
-        if user_input == '1':
+            # The set of code to enact an update of the main category pattern dictionary
+            if user_input == '1':
+    
+                # Another menu for the user to select which category to assign the unknown line item
+                while True:
+                    print('What category does the item belong to?\n')
+                    print('1. Current Assets')
+                    print('2. Non Current Assets')
+                    print('3. Current Liabilities')
+                    print('4. Non Current Assets')
+                    print('5. Equity')
+                    print('6. Totals')
+                    print('7. Quit\n')
+                    print('Select a number.')
 
-            # Another menu for the user to select which category to assign the unknown line item
-            while True:
-                print('What category does the item belong to?\n')
-                print('1. Current Assets')
-                print('2. Non Current Assets')
-                print('3. Current Liabilities')
-                print('4. Non Current Assets')
-                print('5. Equity')
-                print('6. Totals')
-                print('7. Quit\n')
-                print('Select a number.')
+                    # Creating a dictionary for the response options for the user. This setup avoids the use of a long chain of if/elif statements
+                    category_assign_dict = {'1': 'current_assets', '2': 'noncurrent_assets', '3': 'current_liabilities',
+                                           '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals'}
 
-                # Creating a dictionary for the response options for the user. This setup avoids the use of a long chain of if/elif statements
-                category_assign_dict = {'1': 'current_assets', '2': 'noncurrent_assets', '3': 'current_liabilities',
-                                       '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals'}
+                    # Take the user input for category
+                    user_input_cat_assign = input()
 
-                # Take the user input for category
-                user_input_cat_assign = input()
+                    # User input for category used in dictionary to assign the snake case balance sheet category
+                    if user_input_cat_assign in category_assign_dict:
+                        # Take regex code for the category pattern dictionary
+                        user_input_regex = input('Please put in regex line. Reminder: Double every \ in regex patterns as the file is saved as a JSON (JSON escape rule).')
+                        # Update the category pattern dictionary
+                        category_pattern[user_input_cat_assign].append(user_input_regex)
+                        # Exit the while loop
+                        break
 
-                # User input for category used in dictionary to assign the snake case balance sheet category
-                if user_input_cat_assign in category_assign_dict:
-                    # Take regex code for the category pattern dictionary
-                    user_input_regex = input('Please put in regex line. Reminder: Double every \ in regex patterns as the file is saved as a JSON (JSON escape rule).')
-                    # Update the category pattern dictionary
-                    category_pattern[user_input_cat_assign].append(user_input_regex)
-                    # Exit the while loop
-                    break
+                    # Quit the update of the main category pattern dictionary
+                    elif user_input == '7':
+                        break
 
-                # Quit the update of the main category pattern dictionary
-                elif user_input == '7':
-                    break
+                    # If any other accidental input, the option to retry is shown.
+                    else:
+                        print('Try again. Use a number only.')
 
-                # If any other accidental input, the option to retry is shown.
-                else:
-                    print('Try again. Use a number only.')
+            # The set of code to enact an update of the balance sheet data frame
+            elif user_input == '2':
 
-        # The set of code to enact an update of the balance sheet data frame
-        elif user_input == '2':
+                # Another menu for the user to select which category to assign the unknown line item
+                while True:
+                    print('What category does the item belong to?\n')
+                    print('1. Current Assets')
+                    print('2. Non Current Assets')
+                    print('3. Current Liabilities')
+                    print('4. Non Current Liabilities')
+                    print('5. Equity')
+                    print('6. Totals')
+                    print('7. Quit\n')
+                    print('Select a number:1')
 
-            # Another menu for the user to select which category to assign the unknown line item
-            while True:
-                print('What category does the item belong to?\n')
-                print('1. Current Assets')
-                print('2. Non Current Assets')
-                print('3. Current Liabilities')
-                print('4. Non Current Liabilities')
-                print('5. Equity')
-                print('6. Totals')
-                print('7. Quit\n')
-                print('Select a number:1')
-
-                 # Creating a dictionary for the response options for the user. This setup avoids the use of a long chain of if/elif statements
-                category_assign_dict = {'1': 'current_assets', '2': 'noncurrent_assets', '3': 'current_liabilities',
+                    # Creating a dictionary for the response options for the user. This setup avoids the use of a long chain of if/elif statements
+                    category_assign_dict = {'1': 'current_assets', '2': 'noncurrent_assets', '3': 'current_liabilities',
                                        '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals'}
                 
-                # Take the user input for category
-                user_input_cat_assign = input()
+                    # Take the user input for category
+                    user_input_cat_assign = input()
 
-                # User input for category used in dictionary to assign the snake case balance sheet category
-                if user_input in category_assign_dict:
-                    # Add the balance sheet category snake case name to the dataframe
-                    merged_bs.loc[target_name, 'category'] = category_assign_dict[user_input_cat_assign]
-                    # Exit the while loop
-                    break
+                    # User input for category used in dictionary to assign the snake case balance sheet category
+                    if user_input in category_assign_dict:
+                        # Add the balance sheet category snake case name to the dataframe
+                        merged_bs.loc[target_name, 'category'] = category_assign_dict[user_input_cat_assign]
+                        # Exit the while loop
+                        break
 
-                # Quit the update of the main category pattern dictionary
-                elif user_input == '7':
-                    break
+                    # Quit the update of the main category pattern dictionary
+                    elif user_input == '7':
+                        break
 
-                # If any other accidental input, the option to retry is shown.
-                else:
-                    print('Try again. Use a number only.')
+                    # If any other accidental input, the option to retry is shown.
+                    else:
+                        print('Try again. Use a number only.')
 
-        # Quit the update menu
-        elif user_input == '3':
-            break
+            # Quit the update menu
+            elif user_input == '3':
+                break
 
-        # If any other accidental input, the option to retry is shown.
-        else:
-            print('Try again. Use a number only.')
+            # If any other accidental input, the option to retry is shown.
+            else:
+                print('Try again. Use a number only.')
 
-# Save the category_pattern.json with any additional content
-with open("category_pattern.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-        f.write("\n")
+    # Save the category_pattern.json with any additional content
+    with open("category_pattern.json", "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+            f.write("\n")
+
+
+
