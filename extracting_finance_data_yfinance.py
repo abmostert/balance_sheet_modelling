@@ -17,7 +17,7 @@ def normalise(label: str) -> str:
 
 # Create function to categorise the line item into a balance sheet section
 # Function also returns the snake case equivalent
-def _categorise(snake_case_label: str) -> str:
+def _categorise(snake_case_label: str, category_pattern: dict) -> str:
     for cat, patterns in category_pattern.items():
         for pat in patterns:
             if re.fullmatch(pat, snake_case_label):
@@ -79,7 +79,7 @@ if period not in ("annual", "quarterly"):
             print('2. Update the balance sheet dataframe?')
             print('3. Quit the programme?')
         
-            user_input = input()
+            user_input = input().strip()
 
             # The set of code to enact an update of the main category pattern dictionary
             if user_input == '1':
@@ -101,14 +101,20 @@ if period not in ("annual", "quarterly"):
                                            '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals'}
 
                     # Take the user input for category
-                    user_input_cat_assign = input()
+                    user_input_cat_assign = input().strip()
 
                     # User input for category used in dictionary to assign the snake case balance sheet category
                     if user_input_cat_assign in category_assign_dict:
                         # Take regex code for the category pattern dictionary
                         user_input_regex = input('Please put in regex line. Reminder: Double every \ in regex patterns as the file is saved as a JSON (JSON escape rule).')
                         # Update the category pattern dictionary
-                        category_pattern[user_input_cat_assign].append(user_input_regex)
+                        cat_key = category_assign_dict[user_input_cat_assign]
+                        category_pattern.setdefault(cat_key, [])
+                        category_pattern[cat_key].append(user_input_regex)
+                        _save_category_pattern(category_pattern, category_pattern_path)
+                        # After updating patterns, re-categorise this label immediately
+                        new_cat = _categorise(snake_case_labels[target_name], category_pattern)
+                        merged_bs.loc[target_name, "category"] = new_cat
                         # Exit the while loop
                         break
 
@@ -140,10 +146,10 @@ if period not in ("annual", "quarterly"):
                                        '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals'}
                 
                     # Take the user input for category
-                    user_input_cat_assign = input()
+                    user_input_cat_assign = input().strip()
 
                     # User input for category used in dictionary to assign the snake case balance sheet category
-                    if user_input in category_assign_dict:
+                    if user_input_cat_assign in category_assign_dict:
                         # Add the balance sheet category snake case name to the dataframe
                         merged_bs.loc[target_name, 'category'] = category_assign_dict[user_input_cat_assign]
                         # Exit the while loop
@@ -165,10 +171,21 @@ if period not in ("annual", "quarterly"):
             else:
                 print('Try again. Use a number only.')
 
-    # Save the category_pattern.json with any additional content
-    with open("category_pattern.json", "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-            f.write("\n")
+    return merged_bs
 
 
+# CLI usage: python extracting_finance_data_yfinance.py ticker label --period quarterly --interactive
+if __name__ == "__main__":
+    import argparse
+    # instantiate class
+    parser = argparse.ArgumentParser()
+    # get CLI items
+    parser.add_argument("ticker")
+    parser.add_argument("--period", choices=["annual", "quarterly"], default="annual")
+    parser.add_argument("--interactive", action="store_true")
+    args = parser.parse_args()
+    # run the extraction
+    df = run_extraction(args.ticker, period=args.period, interactive=args.interactive)
 
+    #Print a sample of the dataframe
+    df.head()
