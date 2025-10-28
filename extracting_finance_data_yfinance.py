@@ -153,4 +153,7 @@ if (merged_bs['category'] == 'unknown').any():
         else:
             print('Try again. Use a number only.')
 
-
+# Save the category_pattern.json with any additional content
+with open("category_pattern.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+        f.write("\n")
