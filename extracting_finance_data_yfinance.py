@@ -10,6 +10,8 @@ import pandas as pd
 # Use of yfinance for getting the financial data
 import yfinance as yf
 
+from canonical_filter import apply_canonical_filter
+
 # --helper functions--
 # Create a function to change balance sheet labels into snake case labels
 def normalise(label: str) -> str:
@@ -36,20 +38,25 @@ def _save_category_pattern(category_pattern: dict, path: str = "category_pattern
         f.write("\n")
 
 # -- main script --
-def run_extraction(ticker: str, period: str = 'annual', interactive: bool = False, category_pattern_path: str: "category_pattern.json") -> "pd.DataFrame":
-if period not in ("annual", "quarterly"):
-    raise ValueError("Period must be 'annual' or 'quarterly'.")
+def run_extraction(ticker: str, period: str = 'annual', interactive: bool = False, category_pattern_path: str = "category_pattern.json", prefilter: bool = True) -> "pd.DataFrame":
+    if period not in ("annual", "quarterly"):
+        raise ValueError("Period must be 'annual' or 'quarterly'.")
 
     # Use real data to run the programme
-    t = yf.Ticker("BP.L")
+    t = yf.Ticker(ticker)
     # Extract the balance sheet
-    bs = t.balance_sheet
-    labels = bs.index.tolist()
+    bs = t.balance_sheet if period == "annual" else t.quarterly_balance_sheet
+   
+    # Apply the prefilter
+    if prefilter:
+        bs = apply_canonical_filter(bs)
 
     # Load the category pattern
     category_pattern = _load_category_pattern(category_pattern_path)
 
+
     # Create a relationship between line item, category and snake case
+    labels = bs.index.tolist()
     snake_case_labels = {lbl: normalise(lbl) for lbl in labels}
     categories = {lbl: _categorise(snake_case_labels[lbl]) for lbl in labels}
     cat_df = pd.DataFrame({"label": labels, "category": [categories[lbl]
@@ -65,7 +72,7 @@ if period not in ("annual", "quarterly"):
     # If an unknown item is in the category label, then it means the line item needs
     # to be updated into the category pattern dictionary, or update it locally in
     # the balance sheet dataframe
-    if (merged_bs['category'] == 'unknown').any():
+    if interactive and (merged_bs['category'] == 'unknown').any():
 
     
         while True:
@@ -93,12 +100,13 @@ if period not in ("annual", "quarterly"):
                     print('4. Non Current Assets')
                     print('5. Equity')
                     print('6. Totals')
-                    print('7. Quit\n')
-                    print('Select a number.')
+                    print('7. Balance Sheet Metrics')
+                    print('8. Quit\\n')
+                    print('Select a number:')
 
                     # Creating a dictionary for the response options for the user. This setup avoids the use of a long chain of if/elif statements
                     category_assign_dict = {'1': 'current_assets', '2': 'noncurrent_assets', '3': 'current_liabilities',
-                                           '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals'}
+                                           '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals', '7': 'balance_sheet_metrics'}
 
                     # Take the user input for category
                     user_input_cat_assign = input().strip()
@@ -119,7 +127,7 @@ if period not in ("annual", "quarterly"):
                         break
 
                     # Quit the update of the main category pattern dictionary
-                    elif user_input == '7':
+                    elif user_input == '8':
                         break
 
                     # If any other accidental input, the option to retry is shown.
@@ -138,12 +146,13 @@ if period not in ("annual", "quarterly"):
                     print('4. Non Current Liabilities')
                     print('5. Equity')
                     print('6. Totals')
-                    print('7. Quit\n')
-                    print('Select a number:1')
+                    print('7. Balance Sheet Metrics')
+                    print('8. Quit\\n')
+                    print('Select a number:')
 
                     # Creating a dictionary for the response options for the user. This setup avoids the use of a long chain of if/elif statements
                     category_assign_dict = {'1': 'current_assets', '2': 'noncurrent_assets', '3': 'current_liabilities',
-                                       '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals'}
+                                       '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals', '7': 'balance_sheet_metrics'}
                 
                     # Take the user input for category
                     user_input_cat_assign = input().strip()
@@ -156,7 +165,7 @@ if period not in ("annual", "quarterly"):
                         break
 
                     # Quit the update of the main category pattern dictionary
-                    elif user_input == '7':
+                    elif user_input == '8':
                         break
 
                     # If any other accidental input, the option to retry is shown.
@@ -183,9 +192,12 @@ if __name__ == "__main__":
     parser.add_argument("ticker")
     parser.add_argument("--period", choices=["annual", "quarterly"], default="annual")
     parser.add_argument("--interactive", action="store_true")
+    parser.add_argument("--no-prefilter", action="store_true", help="Disable canonical prefilter")
+    parser.add_argument("--category-pattern-path", default="category_pattern.json")
     args = parser.parse_args()
     # run the extraction
-    df = run_extraction(args.ticker, period=args.period, interactive=args.interactive)
+    df = run_extraction(args.ticker, period=args.period, interactive=args.interactive, category_pattern_path=args.category_pattern_path,
+        prefilter=not args.no_prefilter)
 
     #Print a sample of the dataframe
-    df.head()
+    print(df.head(30).to_string())
