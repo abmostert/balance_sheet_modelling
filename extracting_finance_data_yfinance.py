@@ -10,7 +10,7 @@ import pandas as pd
 # Use of yfinance for getting the financial data
 import yfinance as yf
 
-from canonical_filter import apply_canonical_filter
+from canonical_filter_balance_sheet import apply_canonical_filter
 
 # --helper functions--
 # Create a function to change balance sheet labels into snake case labels
@@ -49,7 +49,7 @@ def run_extraction(ticker: str, period: str = 'annual', interactive: bool = Fals
    
     # Apply the prefilter
     if prefilter:
-        bs = apply_canonical_filter(bs)
+        bs = apply_canonical_filter_balance_sheet(bs)
 
     # Load the category pattern
     category_pattern = _load_category_pattern(category_pattern_path)
