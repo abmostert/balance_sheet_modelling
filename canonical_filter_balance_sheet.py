@@ -1,7 +1,8 @@
 import re
 import pandas as pd
 
-# --- Canonical aliases: regex (on normalized labels) -> canonical key ---
+# Creating a dictionary, where a key phrase is then linked to the value, which is a canonical line item found on a balance sheet. The keys are writen in 
+# regex code and should cover the numerous variations that yahoo finance supplies.
 ALIASES = {
     # Assets
     r"^cash(_and)?(_cash_equivalents)?$|^cash_and_cash_equivalents$|^cashandcashequivalents$|^cash_cash_equivalents$": "cash_and_equivalents",
@@ -36,6 +37,7 @@ ALIASES = {
     r"^total_liabilities(_and)?_equity$|^total_liabilities_and_(shareholders|stockholders|equity)$|^total_liabilities__equity$": "total_liabilities_and_equity",
 }
 
+# Creating a list of the line items in a balance sheet, in the order they usually appear.
 CANONICAL_ORDER = [
     # Assets
     "cash_and_equivalents","short_term_investments","accounts_receivable","inventory","other_current_assets",
