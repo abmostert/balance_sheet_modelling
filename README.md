@@ -14,10 +14,15 @@ access_control_file.py
 
 extracting_finance_data_yfinance.py
   This files accesses yahoo finance, extracts balance sheet data, and assigns the line items to balance sheet categories, such as current assets, equity, etc. 
-  It also has the facility to handle items that are unknown, where the user can input the categories for the line items.
+  Part of how it does this is it calls on a function in canonical_filter_balance_sheet.py, that does an initial filter of all line items to reduce the yahoo finance data to single, well known balance sheet line items.
+  It also has the facility to handle items that are unknown, that is not captured initially by the canonical_filter_balance_sheet.py programme. The user can input the categories for the line items.
   As part of identification of the line items, the program call upon another file, category_pattern.json, to check known line items, and find the appropriate snake_case equivalent.
   At the end of the programme, a pandas dataframe should be generated, that has the line items, the category it belongs to, done in snake_case, to enable further analysis.
 
+canonical_filter_balance_sheet.py
+  This file takes data extracted from extracting_finance_data_yfinance.py, and then filters all the available line items for the balance sheet. Line items may be labeled slightly differently, but this filter will take care of the most common ones.
+  With the filtering, it will then assign a snake case to the line items. 
+  
 balance_sheet.py
   This file takes line items, and then assign them to the appropriate category, and then display the balance sheet for inspection.
   This file has not yet been integrated into access_control_file.py.
