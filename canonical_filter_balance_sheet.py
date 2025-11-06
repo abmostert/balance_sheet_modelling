@@ -49,16 +49,22 @@ CANONICAL_ORDER = [
     "total_equity","total_liabilities_and_equity"
 ]
 
+# Here a helper function is created, that takes any string and puts it into snake case
 def _norm(label: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_')
 
+# Here, the label is inserted, and the pattern is matched to the canonical list
 def map_row_to_canonical(label: str) -> str | None:
+    #Turn label into snake case
     s = _norm(label)
+    #run through the pattern keys and see if there is a match with the label. If found, assign the 
+    #canonical label.
     for pat, canon in ALIASES.items():
         if re.fullmatch(pat, s):
             return canon
     return None
 
+#The main filter function.
 def apply_canonical_filter(df_raw: "pd.DataFrame") -> "pd.DataFrame":
     """
     Input: Yahoo/YF balance sheet (rows=labels, cols=periods).
@@ -66,56 +72,80 @@ def apply_canonical_filter(df_raw: "pd.DataFrame") -> "pd.DataFrame":
             picking the 'best' source when multiple raw rows map to the same canonical key,
             and computing standard fallbacks for missing totals.
     """
-    # Gather candidates for each canonical key
+    #Type hint to ensure the integrity of the dictionary
     buckets: dict[str, pd.Series] = {}
+    # Gather candidates for each canonical key
     for raw_row in df_raw.index.astype(str):
         canon = map_row_to_canonical(raw_row)
         if not canon:
             continue
         s = df_raw.loc[raw_row]
         prev = buckets.get(canon)
+        # Assume that there are multiple lines that are the same, therefore, this statement will
         # keep the series with more data points
         if prev is None or s.count() > prev.count():
             buckets[canon] = s
 
+    # Return the tidied dataframe.
     tidy = pd.DataFrame(buckets).T
 
     # Compute fallbacks column-wise
     for col in tidy.columns:
         # total_current_assets
+        # If total current assets are not present as a value, then, calculate it from the parts that make up the total current assets
         if "total_current_assets" in tidy.index and pd.isna(tidy.loc["total_current_assets", col]):
+            # List the part of the total current assests
             parts = ["cash_and_equivalents","short_term_investments","accounts_receivable","inventory","other_current_assets"]
+            # Generate a list of the corresponding values to "parts" above, if parts are present
             vals = [tidy.loc[p, col] for p in parts if p in tidy.index and pd.notna(tidy.loc[p, col])]
+            # If any values present, determine the total current assets
             if vals:
                 tidy.loc["total_current_assets", col] = sum(vals)
 
         # total_assets
+        # If total assets are not present as a value, then, calculate it from the parts that make up the total assets
         if "total_assets" in tidy.index and pd.isna(tidy.loc["total_assets", col]):
+            # List the part of the total  assests
             parts = ["total_current_assets","ppe_net","goodwill","intangibles","other_noncurrent_assets"]
+            # Generate a list of the corresponding values to "parts" above, if parts are present
             vals = [tidy.loc[p, col] for p in parts if p in tidy.index and pd.notna(tidy.loc[p, col])]
+            # If any values present, determine the total assets
             if vals:
                 tidy.loc["total_assets", col] = sum(vals)
 
         # total_current_liabilities
+        # If total current liabilities are not present as a value, then, calculate it from the parts that make up the total current liabilities
         if "total_current_liabilities" in tidy.index and pd.isna(tidy.loc["total_current_liabilities", col]):
+            # List the part of the total current liabilities
             parts = ["accounts_payable","short_term_debt","other_current_liabilities"]
+            # Generate a list of the corresponding values to "parts" above, if parts are present
             vals = [tidy.loc[p, col] for p in parts if p in tidy.index and pd.notna(tidy.loc[p, col])]
+            # If any values present, determine the total current liabilities
             if vals:
                 tidy.loc["total_current_liabilities", col] = sum(vals)
 
         # total_liabilities
+        # If total liabilities are not present as a value, then, calculate it from the parts that make up the total liabilities
         if "total_liabilities" in tidy.index and pd.isna(tidy.loc["total_liabilities", col]):
+            # List the part of the total liabilities
             parts = ["total_current_liabilities","long_term_debt","other_noncurrent_liabilities"]
+            # Generate a list of the corresponding values to "parts" above, if parts are present
             vals = [tidy.loc[p, col] for p in parts if p in tidy.index and pd.notna(tidy.loc[p, col])]
+            # If any values present, determine the total liabilities
             if vals:
                 tidy.loc["total_liabilities", col] = sum(vals)
 
         # total_equity
+        # If total equity is not present as a value, then, calculate it from the parts that make up the total equity
         if "total_equity" in tidy.index and pd.isna(tidy.loc["total_equity", col]):
+            # List the part of the total equity
             comp_parts = ["retained_earnings","common_stock","additional_paid_in_capital","treasury_stock","minority_interest"]
+            # Generate a list of the corresponding values to "parts" above, if parts are present
             vals = [tidy.loc[p, col] for p in comp_parts if p in tidy.index and pd.notna(tidy.loc[p, col])]
+            # If any values present, determine the total equity
             if vals:
                 tidy.loc["total_equity", col] = sum(vals)
+            # Fall back if it can't be computed directly, by using the accounting identidy
             elif "total_assets" in tidy.index and "total_liabilities" in tidy.index:
                 a = tidy.loc["total_assets", col]
                 l = tidy.loc["total_liabilities", col]
@@ -123,10 +153,15 @@ def apply_canonical_filter(df_raw: "pd.DataFrame") -> "pd.DataFrame":
                     tidy.loc["total_equity", col] = a - l
 
         # total_liabilities_and_equity
+        # If total liabilities and equity is not present as a value, then, calculate it from the parts that make up the total liabilities and equity
         if "total_liabilities_and_equity" in tidy.index and pd.isna(tidy.loc["total_liabilities_and_equity", col]):
+            # If the above if statement is satisfied, i.e. that the row exists, then, we proceed with the second if statement. This one checks if we 
+            # have liabilities and equity to do the calculation
             if "total_liabilities" in tidy.index and "total_equity" in tidy.index:
+                # Determine the values of equity and liability
                 L = tidy.loc["total_liabilities", col]
                 E = tidy.loc["total_equity", col]
+                #This if statement then proceeds if both L and and E are actual values.
                 if pd.notna(L) and pd.notna(E):
                     tidy.loc["total_liabilities_and_equity", col] = L + E
 
