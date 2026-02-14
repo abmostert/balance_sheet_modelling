@@ -29,7 +29,7 @@ def _categorise(snake_case_label: str, category_pattern: dict) -> str:
 # Create a function to open the json file
 # Open the category_pattern.json with encoding utf-8 to obtain the snake case labels
 def _load_category_pattern(path: str = "category_pattern.json") -> dict:
-    with open("category_pattern.json", "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def _save_category_pattern(category_pattern: dict, path: str = "category_pattern.json") -> None:
@@ -46,10 +46,15 @@ def run_extraction(ticker: str, period: str = 'annual', interactive: bool = Fals
     t = yf.Ticker(ticker)
     # Extract the balance sheet
     bs = t.balance_sheet if period == "annual" else t.quarterly_balance_sheet
-   
+
+    # guard: empty dataframe
+    if bs is None or bs.empty:
+        raise ValueError(f"No balance sheet returned for {ticker} ({period}).")
+
+
     # Apply the prefilter
     if prefilter:
-        bs = apply_canonical_filter_balance_sheet(bs)
+        bs = apply_canonical_filter(bs)
 
     # Load the category pattern
     category_pattern = _load_category_pattern(category_pattern_path)
@@ -58,15 +63,14 @@ def run_extraction(ticker: str, period: str = 'annual', interactive: bool = Fals
     # Create a relationship between line item, category and snake case
     labels = bs.index.tolist()
     snake_case_labels = {lbl: normalise(lbl) for lbl in labels}
-    categories = {lbl: _categorise(snake_case_labels[lbl]) for lbl in labels}
+    categories = {lbl: _categorise(snake_case_labels[lbl], category_pattern) for lbl in labels}
     cat_df = pd.DataFrame({"label": labels, "category": [categories[lbl]
                                                       for lbl in labels],
                            "snake_case": [snake_case_labels[lbl]
-                                           for lbl in labels]})
-    cat_df = cat_df.set_index('label')
+                                           for lbl in labels]}).set_index("label")
 
     # Add to the balance sheet dataframe the category and snake_case
-    merged_bs = pd.merge(bs,cat_df, left_index=True, right_index=True)
+    merged_bs = bs.join(cat_df, how="left")
 
 
     # If an unknown item is in the category label, then it means the line item needs
@@ -74,7 +78,7 @@ def run_extraction(ticker: str, period: str = 'annual', interactive: bool = Fals
     # the balance sheet dataframe
     if interactive and (merged_bs['category'] == 'unknown').any():
 
-    
+
         while True:
             # The user is given the option on what to modify
             target = merged_bs[merged_bs['category'] == 'unknown'].iloc[0]
@@ -85,12 +89,12 @@ def run_extraction(ticker: str, period: str = 'annual', interactive: bool = Fals
             print('1. Update the main category pattern dictionary?')
             print('2. Update the balance sheet dataframe?')
             print('3. Quit the programme?')
-        
+
             user_input = input().strip()
 
             # The set of code to enact an update of the main category pattern dictionary
             if user_input == '1':
-    
+
                 # Another menu for the user to select which category to assign the unknown line item
                 while True:
                     print('What category does the item belong to?\n')
@@ -153,7 +157,7 @@ def run_extraction(ticker: str, period: str = 'annual', interactive: bool = Fals
                     # Creating a dictionary for the response options for the user. This setup avoids the use of a long chain of if/elif statements
                     category_assign_dict = {'1': 'current_assets', '2': 'noncurrent_assets', '3': 'current_liabilities',
                                        '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals', '7': 'balance_sheet_metrics'}
-                
+
                     # Take the user input for category
                     user_input_cat_assign = input().strip()
 
