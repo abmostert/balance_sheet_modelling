@@ -1,0 +1,68 @@
+{
+    "categories": {
+        "current_assets": [
+            "cash_and_equivalents",
+            "short_term_investments",
+            "accounts_receivable",
+            "inventory",
+            "other_current_assets",
+            "total_current_assets"
+        ],
+        "noncurrent_assets": [
+            "ppe_net",
+            "goodwill",
+            "intangibles",
+            "other_noncurrent_assets"
+        ],
+        "current_liabilities": [
+            "accounts_payable",
+            "short_term_debt",
+            "other_current_liabilities",
+            "total_current_liabilities"
+        ],
+        "noncurrent_liabilities": [
+            "long_term_debt",
+            "other_noncurrent_liabilities"
+        ],
+        "equity": [
+            "minority_interest",
+            "retained_earnings",
+            "common_stock",
+            "additional_paid_in_capital",
+            "treasury_stock",
+            "total_equity"
+        ],
+        "totals": [
+            "total_assets",
+            "total_liabilities",
+            "total_liabilities_and_equity"
+        ]
+    },
+    "canonical_order": [
+        "cash_and_equivalents",
+        "short_term_investments",
+        "accounts_receivable",
+        "inventory",
+        "other_current_assets",
+        "total_current_assets",
+        "ppe_net",
+        "goodwill",
+        "intangibles",
+        "other_noncurrent_assets",
+        "total_assets",
+        "accounts_payable",
+        "short_term_debt",
+        "other_current_liabilities",
+        "total_current_liabilities",
+        "long_term_debt",
+        "other_noncurrent_liabilities",
+        "total_liabilities",
+        "minority_interest",
+        "retained_earnings",
+        "common_stock",
+        "additional_paid_in_capital",
+        "treasury_stock",
+        "total_equity",
+        "total_liabilities_and_equity"
+    ]
+}
