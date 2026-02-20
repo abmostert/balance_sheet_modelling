@@ -1,12 +1,24 @@
-# import the run_extraction script
 from extracting_finance_data_yfinance import run_extraction
 
 def main():
-    ticker = "VOD.L"        # or inject from config/CLI/env
-    period = "annual"      # or "quarterly"
-    df = run_extraction(ticker, period=period, interactive=False, category_pattern_path="category_pattern.json", prefilter=True)
-    # Do whatever you want with the DataFrame:
-    print(df.head(20).to_string())
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ticker", default="ROCK.L")
+    parser.add_argument("--period", choices=["annual", "quarterly"], default="annual")
+    parser.add_argument("--mode", choices=["production", "diagnostic"], default="production")
+    parser.add_argument("--canonical-schema-path", default="canonical_schema.json")
+    args = parser.parse_args()
+
+    df = run_extraction(
+        args.ticker,
+        period=args.period,
+        mode=args.mode,
+        canonical_schema_path=args.canonical_schema_path,
+    )
+
+    print("\n=== ACCESS CONTROL: MODE 1 DATAFRAME (top rows) ===\n")
+    print(df.head(30).to_string())
 
 if __name__ == "__main__":
     main()

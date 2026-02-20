@@ -1,207 +1,217 @@
-# Import all the necessary modules
-
-# Import re for regex code handeling for the catergory patterns json file
 import re
-# Import json since json file is being used in this code
 import json
-# numpy and pandas necesarry for cateloging and manipulating data
+from collections import defaultdict
+from typing import Dict, List, Tuple, Optional
+
 import numpy as np
 import pandas as pd
-# Use of yfinance for getting the financial data
 import yfinance as yf
 
-from canonical_filter_balance_sheet import apply_canonical_filter
+from canonical_filter_balance_sheet import (
+    apply_canonical_filter,
+    map_row_to_canonical,
+    _norm as norm_raw_label,  # raw label normaliser used by canonical filter
+)
 
-# --helper functions--
-# Create a function to change balance sheet labels into snake case labels
-def normalise(label: str) -> str:
-    return re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_')
+# -----------------------
+# Small helpers
+# -----------------------
 
-# Create function to categorise the line item into a balance sheet section
-# Function also returns the snake case equivalent
-def _categorise(snake_case_label: str, category_pattern: dict) -> str:
-    for cat, patterns in category_pattern.items():
-        for pat in patterns:
-            if re.fullmatch(pat, snake_case_label):
-                return cat
-    return "unknown"
-
-# Create a function to open the json file
-# Open the category_pattern.json with encoding utf-8 to obtain the snake case labels
-def _load_category_pattern(path: str = "category_pattern.json") -> dict:
+def _load_json(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def _save_category_pattern(category_pattern: dict, path: str = "category_pattern.json") -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(category_pattern, f, indent=4, ensure_ascii=False)
-        f.write("\n")
+def _build_canonical_category_map(schema: dict) -> Tuple[Dict[str, str], List[str]]:
+    """
+    schema format (canonical_schema.json):
+      {
+        "categories": { "current_assets": ["cash_and_equivalents", ...], ... },
+        "canonical_order": ["cash_and_equivalents", ...]
+      }
+    Returns:
+      canon_to_cat: canonical_key -> category
+      canonical_order: list of canonical keys in desired print order
+    """
+    categories = schema.get("categories", {})
+    canon_to_cat: Dict[str, str] = {}
+    for cat, keys in categories.items():
+        for k in keys:
+            canon_to_cat[k] = cat
+    canonical_order = schema.get("canonical_order", [])
+    return canon_to_cat, canonical_order
 
-# -- main script --
-def run_extraction(ticker: str, period: str = 'annual', interactive: bool = False, category_pattern_path: str = "category_pattern.json", prefilter: bool = True) -> "pd.DataFrame":
+def _quality_checks(canon_bs: pd.DataFrame) -> pd.DataFrame:
+    """
+    Returns a small per-period table with totals and identity check.
+    Assumes canon_bs index includes (some of):
+      total_assets, total_liabilities, total_equity, total_liabilities_and_equity
+    """
+    cols = list(canon_bs.columns)
+    out_rows = []
+
+    for col in cols:
+        a = canon_bs.loc["total_assets", col] if "total_assets" in canon_bs.index else np.nan
+        l = canon_bs.loc["total_liabilities", col] if "total_liabilities" in canon_bs.index else np.nan
+        e = canon_bs.loc["total_equity", col] if "total_equity" in canon_bs.index else np.nan
+
+        le = np.nan
+        if pd.notna(l) and pd.notna(e):
+            le = l + e
+
+        diff = np.nan
+        diff_pct = np.nan
+        if pd.notna(a) and pd.notna(le) and a != 0:
+            diff = a - le
+            diff_pct = diff / a
+
+        out_rows.append(
+            {
+                "period": col,
+                "total_assets": a,
+                "total_liabilities": l,
+                "total_equity": e,
+                "liab_plus_equity": le,
+                "A_minus_(L+E)": diff,
+                "diff_pct_of_assets": diff_pct,
+            }
+        )
+
+    qc = pd.DataFrame(out_rows).set_index("period")
+    return qc
+
+def _diagnostic_report(raw_bs: pd.DataFrame, canon_bs: pd.DataFrame) -> dict:
+    """
+    Builds:
+      - unmapped raw labels
+      - collisions (canonical key -> raw labels)
+      - quality checks table
+    """
+    # 1) Unmapped + collisions
+    unmapped = []
+    collisions = defaultdict(list)
+
+    for raw_label in raw_bs.index.astype(str):
+        canon = map_row_to_canonical(raw_label)
+        if canon is None:
+            unmapped.append(
+                {"raw_label": raw_label, "normalised": norm_raw_label(raw_label)}
+            )
+        else:
+            collisions[canon].append(raw_label)
+
+    # only collisions where >1 raw label mapped to same canon
+    collisions_multi = {k: v for k, v in collisions.items() if len(v) > 1}
+
+    # 2) Quality checks (using canonical output)
+    qc = _quality_checks(canon_bs)
+
+    return {
+        "unmapped": unmapped,
+        "collisions": collisions_multi,
+        "quality_checks": qc,
+    }
+
+def _print_diagnostic(report: dict, max_unmapped: int = 50) -> None:
+    print("\n=== MODE 2: DIAGNOSTIC / COVERAGE REPORT ===\n")
+
+    unmapped = report["unmapped"]
+    collisions = report["collisions"]
+    qc: pd.DataFrame = report["quality_checks"]
+
+    print(f"Unmapped raw labels: {len(unmapped)}")
+    if unmapped:
+        show = unmapped[:max_unmapped]
+        df_u = pd.DataFrame(show)
+        print(df_u.to_string(index=False))
+        if len(unmapped) > max_unmapped:
+            print(f"... ({len(unmapped) - max_unmapped} more not shown)")
+
+    print("\nCollisions (multiple raw labels -> same canonical key):")
+    if not collisions:
+        print("None")
+    else:
+        for canon, raws in sorted(collisions.items()):
+            print(f"- {canon}:")
+            for r in raws:
+                print(f"    {r}")
+
+    print("\nQuality checks (per period):")
+    print(qc.to_string())
+
+# -----------------------
+# Main entry
+# -----------------------
+
+def run_extraction(
+    ticker: str,
+    period: str = "annual",
+    mode: str = "production",  # "production" | "diagnostic"
+    canonical_schema_path: str = "canonical_schema.json",
+    interactive: bool = False,  # (kept for now; used only in legacy/raw workflows)
+) -> pd.DataFrame:
+    """
+    Mode 1 (production): Yahoo -> canonicalise -> categorise via canonical_schema.json -> return dataframe.
+    Mode 2 (diagnostic): Yahoo -> coverage report (unmapped/collisions/quality checks) + also returns production df.
+    """
     if period not in ("annual", "quarterly"):
-        raise ValueError("Period must be 'annual' or 'quarterly'.")
+        raise ValueError("period must be 'annual' or 'quarterly'")
+    if mode not in ("production", "diagnostic"):
+        raise ValueError("mode must be 'production' or 'diagnostic'")
 
-    # Use real data to run the programme
     t = yf.Ticker(ticker)
-    # Extract the balance sheet
-    bs = t.balance_sheet if period == "annual" else t.quarterly_balance_sheet
+    raw_bs = t.balance_sheet if period == "annual" else t.quarterly_balance_sheet
 
-    # guard: empty dataframe
-    if bs is None or bs.empty:
+    if raw_bs is None or raw_bs.empty:
         raise ValueError(f"No balance sheet returned for {ticker} ({period}).")
 
+    # --- Mode 1 core: canonicalise ---
+    canon_bs = apply_canonical_filter(raw_bs)
 
-    # Apply the prefilter
-    if prefilter:
-        bs = apply_canonical_filter(bs)
+    # load schema (canonical categories + order)
+    schema = _load_json(canonical_schema_path)
+    canon_to_cat, canonical_order = _build_canonical_category_map(schema)
 
-    # Load the category pattern
-    category_pattern = _load_category_pattern(category_pattern_path)
+    # build metadata columns
+    labels = canon_bs.index.astype(str).tolist()
+    cat = [canon_to_cat.get(k, "unknown") for k in labels]
+    meta = pd.DataFrame(
+        {"category": cat, "canonical_key": labels},
+        index=labels,
+    )
 
+    # reorder for consistent printing if schema provides an order
+    if canonical_order:
+        canon_bs = canon_bs.reindex(canonical_order)
 
-    # Create a relationship between line item, category and snake case
-    labels = bs.index.tolist()
-    snake_case_labels = {lbl: normalise(lbl) for lbl in labels}
-    categories = {lbl: _categorise(snake_case_labels[lbl], category_pattern) for lbl in labels}
-    cat_df = pd.DataFrame({"label": labels, "category": [categories[lbl]
-                                                      for lbl in labels],
-                           "snake_case": [snake_case_labels[lbl]
-                                           for lbl in labels]}).set_index("label")
+        # meta must follow same index
+        meta = meta.reindex(canonical_order)
 
-    # Add to the balance sheet dataframe the category and snake_case
-    merged_bs = bs.join(cat_df, how="left")
+    merged = canon_bs.join(meta, how="left")
 
+    # --- Mode 2: diagnostics ---
+    if mode == "diagnostic":
+        report = _diagnostic_report(raw_bs=raw_bs, canon_bs=canon_bs)
+        _print_diagnostic(report)
 
-    # If an unknown item is in the category label, then it means the line item needs
-    # to be updated into the category pattern dictionary, or update it locally in
-    # the balance sheet dataframe
-    if interactive and (merged_bs['category'] == 'unknown').any():
-
-
-        while True:
-            # The user is given the option on what to modify
-            target = merged_bs[merged_bs['category'] == 'unknown'].iloc[0]
-            target_name = target.name
-            print('The following line item:\n')
-            print(f'{target_name}\n')
-            print('has an unkown category. How do you wish to update the category?\n')
-            print('1. Update the main category pattern dictionary?')
-            print('2. Update the balance sheet dataframe?')
-            print('3. Quit the programme?')
-
-            user_input = input().strip()
-
-            # The set of code to enact an update of the main category pattern dictionary
-            if user_input == '1':
-
-                # Another menu for the user to select which category to assign the unknown line item
-                while True:
-                    print('What category does the item belong to?\n')
-                    print('1. Current Assets')
-                    print('2. Non Current Assets')
-                    print('3. Current Liabilities')
-                    print('4. Non Current Assets')
-                    print('5. Equity')
-                    print('6. Totals')
-                    print('7. Balance Sheet Metrics')
-                    print('8. Quit\\n')
-                    print('Select a number:')
-
-                    # Creating a dictionary for the response options for the user. This setup avoids the use of a long chain of if/elif statements
-                    category_assign_dict = {'1': 'current_assets', '2': 'noncurrent_assets', '3': 'current_liabilities',
-                                           '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals', '7': 'balance_sheet_metrics'}
-
-                    # Take the user input for category
-                    user_input_cat_assign = input().strip()
-
-                    # User input for category used in dictionary to assign the snake case balance sheet category
-                    if user_input_cat_assign in category_assign_dict:
-                        # Take regex code for the category pattern dictionary
-                        user_input_regex = input('Please put in regex line. Reminder: Double every \ in regex patterns as the file is saved as a JSON (JSON escape rule).')
-                        # Update the category pattern dictionary
-                        cat_key = category_assign_dict[user_input_cat_assign]
-                        category_pattern.setdefault(cat_key, [])
-                        category_pattern[cat_key].append(user_input_regex)
-                        _save_category_pattern(category_pattern, category_pattern_path)
-                        # After updating patterns, re-categorise this label immediately
-                        new_cat = _categorise(snake_case_labels[target_name], category_pattern)
-                        merged_bs.loc[target_name, "category"] = new_cat
-                        # Exit the while loop
-                        break
-
-                    # Quit the update of the main category pattern dictionary
-                    elif user_input == '8':
-                        break
-
-                    # If any other accidental input, the option to retry is shown.
-                    else:
-                        print('Try again. Use a number only.')
-
-            # The set of code to enact an update of the balance sheet data frame
-            elif user_input == '2':
-
-                # Another menu for the user to select which category to assign the unknown line item
-                while True:
-                    print('What category does the item belong to?\n')
-                    print('1. Current Assets')
-                    print('2. Non Current Assets')
-                    print('3. Current Liabilities')
-                    print('4. Non Current Liabilities')
-                    print('5. Equity')
-                    print('6. Totals')
-                    print('7. Balance Sheet Metrics')
-                    print('8. Quit\\n')
-                    print('Select a number:')
-
-                    # Creating a dictionary for the response options for the user. This setup avoids the use of a long chain of if/elif statements
-                    category_assign_dict = {'1': 'current_assets', '2': 'noncurrent_assets', '3': 'current_liabilities',
-                                       '4': 'noncurrent_liabilities', '5': 'equity', '6': 'totals', '7': 'balance_sheet_metrics'}
-
-                    # Take the user input for category
-                    user_input_cat_assign = input().strip()
-
-                    # User input for category used in dictionary to assign the snake case balance sheet category
-                    if user_input_cat_assign in category_assign_dict:
-                        # Add the balance sheet category snake case name to the dataframe
-                        merged_bs.loc[target_name, 'category'] = category_assign_dict[user_input_cat_assign]
-                        # Exit the while loop
-                        break
-
-                    # Quit the update of the main category pattern dictionary
-                    elif user_input == '8':
-                        break
-
-                    # If any other accidental input, the option to retry is shown.
-                    else:
-                        print('Try again. Use a number only.')
-
-            # Quit the update menu
-            elif user_input == '3':
-                break
-
-            # If any other accidental input, the option to retry is shown.
-            else:
-                print('Try again. Use a number only.')
-
-    return merged_bs
+    return merged
 
 
-# CLI usage: python extracting_finance_data_yfinance.py ticker label --period quarterly --interactive
 if __name__ == "__main__":
     import argparse
-    # instantiate class
+
     parser = argparse.ArgumentParser()
-    # get CLI items
     parser.add_argument("ticker")
     parser.add_argument("--period", choices=["annual", "quarterly"], default="annual")
-    parser.add_argument("--interactive", action="store_true")
-    parser.add_argument("--no-prefilter", action="store_true", help="Disable canonical prefilter")
-    parser.add_argument("--category-pattern-path", default="category_pattern.json")
+    parser.add_argument("--mode", choices=["production", "diagnostic"], default="production")
+    parser.add_argument("--canonical-schema-path", default="canonical_schema.json")
     args = parser.parse_args()
-    # run the extraction
-    df = run_extraction(args.ticker, period=args.period, interactive=args.interactive, category_pattern_path=args.category_pattern_path,
-        prefilter=not args.no_prefilter)
 
-    #Print a sample of the dataframe
+    df = run_extraction(
+        args.ticker,
+        period=args.period,
+        mode=args.mode,
+        canonical_schema_path=args.canonical_schema_path,
+    )
+
+    print("\n=== MODE 1 OUTPUT (canonical, categorised) ===\n")
     print(df.head(30).to_string())
