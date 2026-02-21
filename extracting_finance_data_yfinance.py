@@ -138,6 +138,32 @@ def _print_diagnostic(report: dict, max_unmapped: int = 50) -> None:
     print("\nQuality checks (per period):")
     print(qc.to_string())
 
+def _tidy_raw_statement(raw_df: pd.DataFrame, ticker: str, period: str, statement: str) -> pd.DataFrame:
+    """
+    Converts raw Yahoo statement (wide) into long format suitable for SQL.
+    Keeps *all* items. Adds metadata columns.
+    Output columns:
+      ticker, statement, period_type, period_end, raw_label, normalised, value
+    """
+    df = raw_df.copy()
+    df.index = df.index.astype(str)
+
+    long = (
+        df.reset_index()
+          .rename(columns={"index": "raw_label"})
+          .melt(id_vars=["raw_label"], var_name="period_end", value_name="value")
+    )
+
+    long["ticker"] = ticker
+    long["statement"] = statement
+    long["period_type"] = period
+    long["normalised"] = long["raw_label"].map(norm_raw_label)
+
+    # Optional: ensure period_end is datetime if possible
+    # (Yahoo columns are often Timestamp already)
+    return long[["ticker", "statement", "period_type", "period_end", "raw_label", "normalised", "value"]]
+
+
 # -----------------------
 # Main entry
 # -----------------------
@@ -193,7 +219,14 @@ def run_extraction(
         report = _diagnostic_report(raw_bs=raw_bs, canon_bs=canon_bs)
         _print_diagnostic(report)
 
-    return merged
+    raw_long = _tidy_raw_statement(raw_bs, ticker=ticker, period=period, statement="balance_sheet")
+
+    return {
+    "canonical": merged,   # canonical wide with category + canonical_key
+    "raw_wide": raw_bs,    # full Yahoo wide table
+    "raw_long": raw_long,  # SQL-friendly long table (everything)
+    }
+
 
 
 if __name__ == "__main__":

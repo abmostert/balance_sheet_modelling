@@ -1,7 +1,9 @@
 import re
 import pandas as pd
+import numpy as np
 
-# Creating a dictionary, where a key phrase is then linked to the value, which is a canonical line item found on a balance sheet. The keys are writen in 
+
+# Creating a dictionary, where a key phrase is then linked to the value, which is a canonical line item found on a balance sheet. The keys are writen in
 # regex code and should cover the numerous variations that yahoo finance supplies.
 ALIASES = {
     # Assets
@@ -35,6 +37,17 @@ ALIASES = {
     r"^treasury_stock$|^treasury_shares$": "treasury_stock",
     r"^total_(shareholders|stockholders|equity)$|^total_equity.*$|^total_stockholder_equity$": "total_equity",
     r"^total_liabilities(_and)?_equity$|^total_liabilities_and_(shareholders|stockholders|equity)$|^total_liabilities__equity$": "total_liabilities_and_equity",
+
+    # Yahoo variants for totals / rollups
+    r"^current_assets$": "total_current_assets",
+    r"^current_liabilities$": "total_current_liabilities",
+
+    # Total liabilities often appears as net of minority interest
+    r"^total_liabilities$|^total_liabilities_net_minority_interest$": "total_liabilities",
+
+    # Equity totals appear under multiple names
+    r"^stockholders_equity$|^shareholders_equity$|^common_stock_equity$": "total_equity",
+
 }
 
 # Creating a list of the line items in a balance sheet, in the order they usually appear.
@@ -57,7 +70,7 @@ def _norm(label: str) -> str:
 def map_row_to_canonical(label: str) -> str | None:
     #Turn label into snake case
     s = _norm(label)
-    #run through the pattern keys and see if there is a match with the label. If found, assign the 
+    #run through the pattern keys and see if there is a match with the label. If found, assign the
     #canonical label.
     for pat, canon in ALIASES.items():
         if re.fullmatch(pat, s):
@@ -88,6 +101,19 @@ def apply_canonical_filter(df_raw: "pd.DataFrame") -> "pd.DataFrame":
 
     # Return the tidied dataframe.
     tidy = pd.DataFrame(buckets).T
+
+    REQUIRED_TOTALS = [
+    "total_current_assets",
+    "total_assets",
+    "total_current_liabilities",
+    "total_liabilities",
+    "total_equity",
+    "total_liabilities_and_equity",
+    ]
+    for key in REQUIRED_TOTALS:
+        if key not in tidy.index:
+            tidy.loc[key] = np.nan
+
 
     # Compute fallbacks column-wise
     for col in tidy.columns:
@@ -155,7 +181,7 @@ def apply_canonical_filter(df_raw: "pd.DataFrame") -> "pd.DataFrame":
         # total_liabilities_and_equity
         # If total liabilities and equity is not present as a value, then, calculate it from the parts that make up the total liabilities and equity
         if "total_liabilities_and_equity" in tidy.index and pd.isna(tidy.loc["total_liabilities_and_equity", col]):
-            # If the above if statement is satisfied, i.e. that the row exists, then, we proceed with the second if statement. This one checks if we 
+            # If the above if statement is satisfied, i.e. that the row exists, then, we proceed with the second if statement. This one checks if we
             # have liabilities and equity to do the calculation
             if "total_liabilities" in tidy.index and "total_equity" in tidy.index:
                 # Determine the values of equity and liability

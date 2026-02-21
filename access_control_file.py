@@ -10,15 +10,24 @@ def main():
     parser.add_argument("--canonical-schema-path", default="canonical_schema.json")
     args = parser.parse_args()
 
-    df = run_extraction(
-        args.ticker,
-        period=args.period,
-        mode=args.mode,
-        canonical_schema_path=args.canonical_schema_path,
+    result = run_extraction(
+    args.ticker,
+    period=args.period,
+    mode=args.mode,
+    canonical_schema_path=args.canonical_schema_path,
     )
 
+
+    canonical_df = result["canonical"]
+    print(canonical_df.head(30).to_string())
+
+    # optional debug:
+    print(result["raw_long"].head(10).to_string(index=False))
+
+
     print("\n=== ACCESS CONTROL: MODE 1 DATAFRAME (top rows) ===\n")
-    print(df.head(30).to_string())
+    print(canonical_df.head(30).to_string())
+
 
 if __name__ == "__main__":
     main()
