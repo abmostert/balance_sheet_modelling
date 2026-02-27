@@ -82,50 +82,112 @@ def _quality_checks(canon_bs: pd.DataFrame) -> pd.DataFrame:
 def _diagnostic_report(raw_bs: pd.DataFrame, canon_bs: pd.DataFrame) -> dict:
     """
     Builds:
-      - unmapped raw labels
+      - unmapped raw labels (bucketed)
       - collisions (canonical key -> raw labels)
+      - mapping coverage stats
       - quality checks table
     """
-    # 1) Unmapped + collisions
+    raw_labels = list(raw_bs.index.astype(str))
+
     unmapped = []
     collisions = defaultdict(list)
 
-    for raw_label in raw_bs.index.astype(str):
+    mapped_count = 0
+    for raw_label in raw_labels:
         canon = map_row_to_canonical(raw_label)
         if canon is None:
+            n = norm_raw_label(raw_label)
             unmapped.append(
-                {"raw_label": raw_label, "normalised": norm_raw_label(raw_label)}
+                {
+                    "raw_label": raw_label,
+                    "normalised": n,
+                    "bucket": _classify_unmapped(n),
+                }
             )
         else:
+            mapped_count += 1
             collisions[canon].append(raw_label)
 
-    # only collisions where >1 raw label mapped to same canon
     collisions_multi = {k: v for k, v in collisions.items() if len(v) > 1}
 
-    # 2) Quality checks (using canonical output)
     qc = _quality_checks(canon_bs)
 
+    # simple "balanced" flag (any period where A and L+E both exist and diff is ~0)
+    balanced_periods = 0
+    checked_periods = 0
+    if not qc.empty:
+        for _, row in qc.iterrows():
+            if pd.notna(row["total_assets"]) and pd.notna(row["liab_plus_equity"]):
+                checked_periods += 1
+                if abs(float(row["A_minus_(L+E)"])) < 1e-6:
+                    balanced_periods += 1
+
     return {
+        "stats": {
+            "raw_rows": len(raw_labels),
+            "mapped_rows": mapped_count,
+            "unmapped_rows": len(unmapped),
+            "mapped_pct": (mapped_count / len(raw_labels)) if raw_labels else np.nan,
+            "collision_keys": len(collisions_multi),
+            "periods_checked_for_identity": checked_periods,
+            "periods_balanced": balanced_periods,
+        },
         "unmapped": unmapped,
         "collisions": collisions_multi,
         "quality_checks": qc,
     }
 
-def _print_diagnostic(report: dict, max_unmapped: int = 50) -> None:
+
+def _print_diagnostic(report: dict, max_unmapped_each: int = 25) -> None:
     print("\n=== MODE 2: DIAGNOSTIC / COVERAGE REPORT ===\n")
 
+    stats = report["stats"]
     unmapped = report["unmapped"]
     collisions = report["collisions"]
     qc: pd.DataFrame = report["quality_checks"]
 
-    print(f"Unmapped raw labels: {len(unmapped)}")
-    if unmapped:
-        show = unmapped[:max_unmapped]
-        df_u = pd.DataFrame(show)
-        print(df_u.to_string(index=False))
-        if len(unmapped) > max_unmapped:
-            print(f"... ({len(unmapped) - max_unmapped} more not shown)")
+    # Summary
+    mapped_pct = stats["mapped_pct"]
+    mapped_pct_str = f"{mapped_pct*100:.1f}%" if pd.notna(mapped_pct) else "NA"
 
+    print("Summary:")
+    print(f"- raw rows: {stats['raw_rows']}")
+    print(f"- mapped to canonical: {stats['mapped_rows']} ({mapped_pct_str})")
+    print(f"- unmapped: {stats['unmapped_rows']}")
+    print(f"- collision canonical keys: {stats['collision_keys']}")
+    print(
+        f"- identity check: balanced {stats['periods_balanced']}/{stats['periods_checked_for_identity']} checked periods"
+    )
+
+    # Group unmapped by bucket
+    print("\nUnmapped raw labels (grouped):")
+    if not unmapped:
+        print("None")
+    else:
+        buckets = {"possible_line_items": [], "derived_or_counts": [], "uncertain": []}
+        for u in unmapped:
+            buckets[u["bucket"]].append(u)
+
+    label_map = {
+        "possible_line_items": "possible_line_items (review for ALIASES)",
+        "derived_or_counts": "derived_or_counts (ignore for canonical)",
+        "uncertain": "uncertain (review keywords)",
+    }
+
+    for key in ["possible_line_items", "derived_or_counts", "uncertain"]:
+        items = buckets[key]
+        display = label_map[key]
+        print(f"\n[{display}] ({len(items)})")
+        if not items:
+            print("  None")
+            continue
+        df_b = pd.DataFrame(items[:max_unmapped_each])[["raw_label", "normalised"]]
+        print(df_b.to_string(index=False))
+        if len(items) > max_unmapped_each:
+            print(f"  ... ({len(items) - max_unmapped_each} more not shown)")
+
+
+    # Collisions
     print("\nCollisions (multiple raw labels -> same canonical key):")
     if not collisions:
         print("None")
@@ -135,8 +197,10 @@ def _print_diagnostic(report: dict, max_unmapped: int = 50) -> None:
             for r in raws:
                 print(f"    {r}")
 
+    # Quality checks
     print("\nQuality checks (per period):")
     print(qc.to_string())
+
 
 def _tidy_raw_statement(raw_df: pd.DataFrame, ticker: str, period: str, statement: str) -> pd.DataFrame:
     """
@@ -162,6 +226,51 @@ def _tidy_raw_statement(raw_df: pd.DataFrame, ticker: str, period: str, statemen
     # Optional: ensure period_end is datetime if possible
     # (Yahoo columns are often Timestamp already)
     return long[["ticker", "statement", "period_type", "period_end", "raw_label", "normalised", "value"]]
+
+def _classify_unmapped(normalised: str) -> str:
+    """
+    Heuristic bucket for unmapped raw labels.
+    Goal: reduce noise in Mode 2 output.
+
+    Returns one of:
+      - "derived_or_counts"
+      - "possible_line_items"
+      - "uncertain"
+    """
+    s = normalised
+
+    # Strong "derived/metric/count" indicators
+    derived_keywords = [
+        "net_debt", "total_debt", "working_capital", "invested_capital",
+        "tangible_book_value", "net_tangible_assets", "capitalization",
+        "book_value", "per_share", "number", "shares", "share_issued",
+        "ordinary_shares", "treasury_shares", "market_cap",
+        "depreciation",
+        "gains_losses",
+        "equity_adjustments",
+    ]
+
+
+    # Strong "balance sheet line item" indicators
+    line_item_keywords = [
+        "payable", "receivable", "accrued", "deferred", "lease", "tax",
+        "liabilities", "assets", "borrow", "debt", "loan", "provision",
+        "inventory", "goodwill", "intangible", "ppe", "property", "equipment",
+        "securities", "investments", "advances", "cash",
+
+        "deferred_tax",
+        "capital_lease",
+    ]
+
+
+    if any(k in s for k in derived_keywords):
+        return "derived_or_counts"
+
+    if any(k in s for k in line_item_keywords):
+        return "possible_line_items"
+
+    return "uncertain"
+
 
 
 # -----------------------
