@@ -13,6 +13,9 @@ from canonical_filter_balance_sheet import (
     _norm as norm_raw_label,  # raw label normaliser used by canonical filter
 )
 
+from datetime import datetime, timezone
+
+
 # -----------------------
 # Small helpers
 # -----------------------
@@ -202,12 +205,13 @@ def _print_diagnostic(report: dict, max_unmapped_each: int = 25) -> None:
     print(qc.to_string())
 
 
-def _tidy_raw_statement(raw_df: pd.DataFrame, ticker: str, period: str, statement: str) -> pd.DataFrame:
+def _tidy_raw_statement(raw_df: pd.DataFrame, ticker: str, period: str, statement: str, source: str = "yfinance") -> pd.DataFrame:
     """
     Converts raw Yahoo statement (wide) into long format suitable for SQL.
     Keeps *all* items. Adds metadata columns.
+
     Output columns:
-      ticker, statement, period_type, period_end, raw_label, normalised, value
+      ticker, statement, period_type, period_end, raw_label, normalised, value, source, retrieved_at_utc
     """
     df = raw_df.copy()
     df.index = df.index.astype(str)
@@ -218,14 +222,28 @@ def _tidy_raw_statement(raw_df: pd.DataFrame, ticker: str, period: str, statemen
           .melt(id_vars=["raw_label"], var_name="period_end", value_name="value")
     )
 
+
+
     long["ticker"] = ticker
     long["statement"] = statement
     long["period_type"] = period
     long["normalised"] = long["raw_label"].map(norm_raw_label)
+    long = long.drop_duplicates(subset=["ticker","statement","period_type","period_end","raw_label"])
 
-    # Optional: ensure period_end is datetime if possible
-    # (Yahoo columns are often Timestamp already)
-    return long[["ticker", "statement", "period_type", "period_end", "raw_label", "normalised", "value"]]
+    # Enforce types
+    long["period_end"] = pd.to_datetime(long["period_end"], errors="coerce")
+    long["period_end"] = long["period_end"].dt.date
+
+    long["value"] = pd.to_numeric(long["value"], errors="coerce")
+
+    # Metadata for database lineage
+    long["source"] = source
+    long["retrieved_at_utc"] = datetime.now(timezone.utc)
+
+    return long[
+        ["ticker", "statement", "period_type", "period_end", "raw_label", "normalised", "value", "source", "retrieved_at_utc"]
+    ]
+
 
 def _classify_unmapped(normalised: str) -> str:
     """
@@ -301,6 +319,10 @@ def run_extraction(
 
     # --- Mode 1 core: canonicalise ---
     canon_bs = apply_canonical_filter(raw_bs)
+
+    # Ergonomics: drop periods where *all* canonical values are NaN
+    canon_bs = canon_bs.dropna(axis=1, how="all")
+
 
     # load schema (canonical categories + order)
     schema = _load_json(canonical_schema_path)

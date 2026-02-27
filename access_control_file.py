@@ -18,15 +18,18 @@ def main():
     )
 
 
-    canonical_df = result["canonical"]
-    print(canonical_df.head(30).to_string())
-
-    # optional debug:
-    print(result["raw_long"].head(10).to_string(index=False))
 
 
-    print("\n=== ACCESS CONTROL: MODE 1 DATAFRAME (top rows) ===\n")
-    print(canonical_df.head(30).to_string())
+
+    if args.mode == "production":
+        print("\n=== ACCESS CONTROL: MODE 1 DATAFRAME (top rows) ===\n")
+        print(result["canonical"].head(30).to_string())
+
+    elif args.mode == "diagnostic":
+        print(result["raw_long"].head(10).to_string(index=False))
+
+
+
 
 
 if __name__ == "__main__":
