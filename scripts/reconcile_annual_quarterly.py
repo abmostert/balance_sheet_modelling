@@ -10,6 +10,16 @@ sys.path.append(str(PROJECT_ROOT))
 from db.db_utils import get_engine
 
 
+VALID_STATUSES = {
+    "MATCH",
+    "CLOSE",
+    "MISMATCH",
+    "MISSING_QUARTERLY",
+    "MISSING_ANNUAL",
+    "MISSING_COMPARISON",
+}
+
+
 def fetch_annual_quarterly_pairs(
     engine,
     ticker: str | None = None,
@@ -63,9 +73,6 @@ def fetch_annual_quarterly_pairs(
 
 
 def classify_reconciliation_row(row: pd.Series) -> str:
-    """
-    Classify one annual-vs-quarterly reconciliation row.
-    """
     annual_value = row["annual_value"]
     quarterly_value = row["quarterly_value"]
     diff_pct = row["diff_pct_annual"]
@@ -90,9 +97,6 @@ def classify_reconciliation_row(row: pd.Series) -> str:
 
 
 def reconcile_annual_quarterly(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Add reconciliation columns and a status classification.
-    """
     out = df.copy()
 
     out["diff"] = out["annual_value"] - out["quarterly_value"]
@@ -114,6 +118,26 @@ def reconcile_annual_quarterly(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def filter_reconciled_df(
+    df: pd.DataFrame,
+    comparable_only: bool = False,
+    status: str | None = None,
+    limit: int | None = None,
+) -> pd.DataFrame:
+    out = df.copy()
+
+    if comparable_only:
+        out = out[out["quarterly_value"].notna()]
+
+    if status:
+        out = out[out["status"] == status]
+
+    if limit is not None:
+        out = out.head(limit)
+
+    return out
+
+
 def main():
     import argparse
 
@@ -121,6 +145,13 @@ def main():
     parser.add_argument("--ticker", default=None)
     parser.add_argument("--canonical-key", default=None)
     parser.add_argument("--fail-only", action="store_true")
+    parser.add_argument("--comparable-only", action="store_true")
+    parser.add_argument(
+        "--status",
+        choices=sorted(VALID_STATUSES),
+        default=None,
+        help="Filter to one reconciliation status only.",
+    )
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()
 
@@ -141,8 +172,12 @@ def main():
             )
         ]
 
-    if args.limit is not None:
-        reconciled_df = reconciled_df.head(args.limit)
+    reconciled_df = filter_reconciled_df(
+        reconciled_df,
+        comparable_only=args.comparable_only,
+        status=args.status,
+        limit=args.limit,
+    )
 
     if reconciled_df.empty:
         print("No rows found.")
