@@ -14,6 +14,8 @@ ALIASES = {
     r"^other_current_assets$|^prepaid.*$": "other_current_assets",
     r"^total_current_assets$|^current_assets_total$": "total_current_assets",
 
+    r"^(gross_)?property_plant_(and_)?equipment$|^gross_ppe$|^property_plant_and_equipment_gross$": "ppe_gross",
+    r"^accumulated_?depreciation( _and_ amortization)?$|^accumulated_depreciation_and_amortization$|^accumulated_amortization$|^accum_depr.*$": "accumulated_depreciation",
     r"^property_plant_equipment.*net$|^net_ppe$|^pp_e_net$|^property_plant_and_equipment_net$|^property_plant_equipment$": "ppe_net",
     r"^goodwill$": "goodwill",
     r"^intangible_assets?(?:_net)?$|^intangibles?(?:_net)?$": "intangibles",
@@ -54,7 +56,7 @@ ALIASES = {
 CANONICAL_ORDER = [
     # Assets
     "cash_and_equivalents","short_term_investments","accounts_receivable","inventory","other_current_assets",
-    "total_current_assets","ppe_net","goodwill","intangibles","other_noncurrent_assets","total_assets",
+    "total_current_assets","ppe_gross","accumulated_depreciation","ppe_net","goodwill","intangibles","other_noncurrent_assets","total_assets",
     # Liabilities & Equity
     "accounts_payable","short_term_debt","other_current_liabilities","total_current_liabilities",
     "long_term_debt","other_noncurrent_liabilities","total_liabilities",
@@ -65,6 +67,10 @@ CANONICAL_ORDER = [
 # Here a helper function is created, that takes any string and puts it into snake case
 def _norm(label: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_')
+
+# Helper function for when doing cross checks on the PPE line items. This just checks that a value is present.
+def _isnum(x): 
+    return pd.notna(x)
 
 # Here, the label is inserted, and the pattern is matched to the canonical list
 def map_row_to_canonical(label: str) -> str | None:
@@ -117,6 +123,27 @@ def apply_canonical_filter(df_raw: "pd.DataFrame") -> "pd.DataFrame":
 
     # Compute fallbacks column-wise
     for col in tidy.columns:
+
+        # Here we sort out the PPE and the associated depreciation/amortization costs
+        g = tidy.loc[gross_row, col] if gross_row in tidy.index else pd.NA
+        a = tidy.loc[acc_row,  col] if acc_row  in tidy.index else pd.NA
+        n = tidy.loc[net_row,  col] if net_row  in tidy.index else pd.NA
+
+        # If we have gross & accum but net is NaN → compute net
+        if net_row in tidy.index and _isnum(g) and _isnum(a) and pd.isna(n):
+            # If accumulated depreciation is negative (common), net = gross + accum.
+            tidy.loc[net_row, col] = g + a if a < 0 else g - a
+
+        # If net & accum but gross is NaN → compute gross
+        if gross_row in tidy.index and _isnum(n) and _isnum(a) and pd.isna(g):
+            tidy.loc[gross_row, col] = n - a if a < 0 else n + a
+
+        # If gross & net but accum is NaN → compute accum
+        if acc_row in tidy.index and _isnum(g) and _isnum(n) and pd.isna(a):
+            a_val = n - g   # if a ends negative, you'll get a negative (expected)
+            tidy.loc[acc_row, col] = a_val
+        
+        
         # total_current_assets
         # If total current assets are not present as a value, then, calculate it from the parts that make up the total current assets
         if "total_current_assets" in tidy.index and pd.isna(tidy.loc["total_current_assets", col]):
